@@ -1,0 +1,110 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+
+@layer base {
+  :root {
+    --background: 210 25% 97%;
+    --foreground: 210 30% 15%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 210 30% 15%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 210 30% 15%;
+
+    --primary: 205 75% 48%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 210 20% 93%;
+    --secondary-foreground: 210 30% 25%;
+
+    --muted: 210 15% 94%;
+    --muted-foreground: 210 12% 50%;
+
+    --accent: 195 60% 92%;
+    --accent-foreground: 205 75% 35%;
+
+    --destructive: 0 65% 55%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 210 18% 88%;
+    --input: 210 18% 88%;
+    --ring: 205 75% 48%;
+
+    --radius: 0.625rem;
+
+    --sidebar-background: 210 25% 97%;
+    --sidebar-foreground: 210 30% 15%;
+    --sidebar-primary: 205 75% 48%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 195 60% 92%;
+    --sidebar-accent-foreground: 205 75% 35%;
+    --sidebar-border: 210 18% 88%;
+    --sidebar-ring: 205 75% 48%;
+
+    /* Custom tokens */
+    --auth-panel: 210 35% 18%;
+    --auth-panel-foreground: 210 15% 90%;
+    --success: 155 60% 42%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 90% 55%;
+    --warning-foreground: 0 0% 100%;
+    --info: 205 75% 48%;
+    --info-foreground: 0 0% 100%;
+  }
+
+  .dark {
+    --background: 210 30% 8%;
+    --foreground: 210 15% 90%;
+    --card: 210 28% 12%;
+    --card-foreground: 210 15% 90%;
+    --popover: 210 28% 12%;
+    --popover-foreground: 210 15% 90%;
+    --primary: 205 75% 55%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 210 25% 18%;
+    --secondary-foreground: 210 15% 85%;
+    --muted: 210 20% 16%;
+    --muted-foreground: 210 12% 55%;
+    --accent: 205 40% 20%;
+    --accent-foreground: 205 75% 70%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 210 20% 20%;
+    --input: 210 20% 20%;
+    --ring: 205 75% 55%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-family: 'Inter', sans-serif;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+  }
+}
+
+@layer utilities {
+  .gradient-medical {
+    background: linear-gradient(135deg, hsl(205 75% 48%) 0%, hsl(195 70% 55%) 100%);
+  }
+  .gradient-auth-panel {
+    background: linear-gradient(180deg, hsl(210 35% 16%) 0%, hsl(210 35% 22%) 100%);
+  }
+  .shadow-medical {
+    box-shadow: 0 4px 24px -4px hsl(205 75% 48% / 0.15);
+  }
+  .shadow-card {
+    box-shadow: 0 1px 3px hsl(210 30% 15% / 0.06), 0 6px 16px hsl(210 30% 15% / 0.04);
+  }
+}

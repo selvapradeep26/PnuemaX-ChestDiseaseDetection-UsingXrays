@@ -1,0 +1,14 @@
+{
+  "name": "pneuma-care-hub-workspace",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "dev": "npm --prefix ./pneuma-care-hub-main run dev",
+    "build": "npm --prefix ./pneuma-care-hub-main run build",
+    "build:dev": "npm --prefix ./pneuma-care-hub-main run build:dev",
+    "lint": "npm --prefix ./pneuma-care-hub-main run lint",
+    "preview": "npm --prefix ./pneuma-care-hub-main run preview",
+    "test": "npm --prefix ./pneuma-care-hub-main run test",
+    "test:watch": "npm --prefix ./pneuma-care-hub-main run test:watch"
+  }
+}

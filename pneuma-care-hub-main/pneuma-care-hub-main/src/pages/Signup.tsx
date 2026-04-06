@@ -1,6 +1,6 @@
-import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { useAuth } from "@/contexts/AuthContext";
+import { useEffect, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext-mongodb";
 import authBg from "@/assets/auth-bg.jpg";
 import logo from "@/assets/logo.png";
 import { Eye, EyeOff } from "lucide-react";
@@ -12,17 +12,24 @@ const Signup = () => {
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
   const [error, setError] = useState("");
-  const { signup } = useAuth();
+  const { signup, loading } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  useEffect(() => {
+    if (!location.state?.fromHome) {
+      navigate("/", { replace: true });
+    }
+  }, [location.state, navigate]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     if (!firstName || !lastName || !email || !password) { setError("Please fill in all fields"); return; }
     if (password.length < 6) { setError("Password must be at least 6 characters"); return; }
-    const ok = signup(email, password, firstName, lastName);
-    if (ok) navigate("/dashboard");
-    else setError("An account with this email already exists");
+    const result = await signup(email, password, firstName, lastName);
+    if (result.ok) navigate("/login", { state: { fromHome: true } });
+    else setError(result.error || "Signup failed");
   };
 
   return (
@@ -58,7 +65,7 @@ const Signup = () => {
           </div>
           <h1 className="text-2xl font-display font-bold text-foreground mb-1">Create an account</h1>
           <p className="text-muted-foreground text-sm mb-8">
-            Already have an account? <Link to="/login" className="text-primary font-medium hover:underline">Log in</Link>
+            Already have an account? <Link to="/login" state={{ fromHome: true }} className="text-primary font-medium hover:underline">Log in</Link>
           </p>
 
           {error && <div className="bg-destructive/10 text-destructive text-sm rounded-lg p-3 mb-4">{error}</div>}
@@ -95,8 +102,8 @@ const Signup = () => {
                 </button>
               </div>
             </div>
-            <button type="submit" className="w-full gradient-medical text-primary-foreground font-medium rounded-lg py-2.5 text-sm hover:opacity-90 transition shadow-medical">
-              Create Account
+            <button type="submit" disabled={loading} className="w-full gradient-medical text-primary-foreground font-medium rounded-lg py-2.5 text-sm hover:opacity-90 transition shadow-medical disabled:opacity-70">
+              {loading ? "Creating Account..." : "Create Account"}
             </button>
           </form>
         </div>

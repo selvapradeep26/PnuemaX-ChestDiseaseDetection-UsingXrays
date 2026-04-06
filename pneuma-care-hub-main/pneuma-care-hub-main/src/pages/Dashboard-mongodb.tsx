@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext-mongodb";
 import logo from "@/assets/logo.png";
 import { Upload, LogOut, AlertCircle, CheckCircle, ShieldAlert, Image, ChevronDown, ChevronUp, Download, Activity, TrendingUp, Info } from "lucide-react";
-import { api, PredictionResponse, DiseaseInfo, HeatmapRegion } from "@/lib/api-mongodb";
+import { api, AnalysisMetadata, AllProbabilities, DiseaseInfo, HeatmapRegion, QualityCheck, ScanRecord } from "@/lib/api-mongodb";
 
 interface PredictionResult {
   disease: string;
@@ -13,26 +13,16 @@ interface PredictionResult {
   explanation?: string;
   heatmap_regions?: HeatmapRegion[];
   disease_info?: DiseaseInfo;
-  quality_check?: any;
-  all_probabilities?: any;
-  analysis_metadata?: any;
+  quality_check?: QualityCheck;
+  all_probabilities?: AllProbabilities;
+  analysis_metadata?: AnalysisMetadata;
 }
 
-interface ScanRecord {
+interface HistoryEntry {
   _id: string;
-  prediction: string;
-  confidence: number;
-  disease: string;
-  status: string;
-  precaution: string;
-  image_url: string;
+  image: string;
+  result: PredictionResult;
   date: string;
-  explanation?: string;
-  heatmap_regions?: HeatmapRegion[];
-  disease_info?: DiseaseInfo;
-  quality_check?: any;
-  all_probabilities?: any;
-  analysis_metadata?: any;
 }
 
 const Dashboard = () => {
@@ -44,7 +34,7 @@ const Dashboard = () => {
   const [showDisclaimer, setShowDisclaimer] = useState(false);
   const [showExplanation, setShowExplanation] = useState(false);
   const [showQualityWarning, setShowQualityWarning] = useState(false);
-  const [history, setHistory] = useState<Array<{ image: string; result: PredictionResult; date: string }>>([]);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
 
   // Load scan history from MongoDB
@@ -60,12 +50,12 @@ const Dashboard = () => {
       const response = await api.scans.getScanHistory(10);
       if (response.scans) {
         // Transform MongoDB scans to Dashboard format
-        const formattedHistory = response.scans.map((scan: any) => ({
+        const formattedHistory: HistoryEntry[] = response.scans.map((scan: ScanRecord) => ({
           _id: scan._id,
           image: scan.image_url,
           result: {
             disease: scan.disease,
-            status: scan.status,
+            status: scan.status as PredictionResult["status"],
             precaution: scan.precaution,
             confidence: scan.confidence,
             explanation: scan.explanation,

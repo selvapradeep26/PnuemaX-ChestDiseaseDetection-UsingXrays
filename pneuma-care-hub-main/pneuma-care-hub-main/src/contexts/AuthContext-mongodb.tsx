@@ -11,8 +11,8 @@ interface User {
 
 interface AuthContextType {
   user: User | null;
-  login: (email: string, password: string) => Promise<boolean>;
-  signup: (email: string, password: string, firstName: string, lastName: string) => Promise<boolean>;
+  login: (email: string, password: string) => Promise<{ ok: boolean; error?: string }>;
+  signup: (email: string, password: string, firstName: string, lastName: string) => Promise<{ ok: boolean; error?: string }>;
   logout: () => Promise<void>;
   isAuthenticated: boolean;
   loading: boolean;
@@ -53,20 +53,27 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  const signup = async (email: string, password: string, firstName: string, lastName: string): Promise<boolean> => {
+  const getErrorMessage = (error: unknown, fallback: string) => {
+    if (error instanceof Error && error.message) {
+      return error.message;
+    }
+    return fallback;
+  };
+
+  const signup = async (email: string, password: string, firstName: string, lastName: string): Promise<{ ok: boolean; error?: string }> => {
     try {
       setLoading(true);
       await api.auth.register({ email, password, firstName, lastName });
-      return true;
+      return { ok: true };
     } catch (error) {
       console.error('Signup error:', error);
-      return false;
+      return { ok: false, error: getErrorMessage(error, "Signup failed") };
     } finally {
       setLoading(false);
     }
   };
 
-  const login = async (email: string, password: string): Promise<boolean> => {
+  const login = async (email: string, password: string): Promise<{ ok: boolean; error?: string }> => {
     try {
       setLoading(true);
       const response = await api.auth.login({ email, password });
@@ -75,10 +82,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const user = response.user;
       setUser(user);
       
-      return true;
+      return { ok: true };
     } catch (error) {
       console.error('Login error:', error);
-      return false;
+      return { ok: false, error: getErrorMessage(error, "Login failed") };
     } finally {
       setLoading(false);
     }

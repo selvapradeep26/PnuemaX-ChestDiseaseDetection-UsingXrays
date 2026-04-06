@@ -1,6 +1,6 @@
-import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { useAuth } from "@/contexts/AuthContext";
+import { useEffect, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext-mongodb";
 import authBg from "@/assets/auth-bg.jpg";
 import logo from "@/assets/logo.png";
 import { Eye, EyeOff } from "lucide-react";
@@ -10,16 +10,23 @@ const Login = () => {
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
   const [error, setError] = useState("");
-  const { login } = useAuth();
+  const { login, loading } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  useEffect(() => {
+    if (!location.state?.fromHome) {
+      navigate("/", { replace: true });
+    }
+  }, [location.state, navigate]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     if (!email || !password) { setError("Please fill in all fields"); return; }
-    const ok = login(email, password);
-    if (ok) navigate("/dashboard");
-    else setError("Invalid email or password");
+    const result = await login(email, password);
+    if (result.ok) navigate("/dashboard");
+    else setError(result.error || "Invalid email or password");
   };
 
   return (
@@ -80,14 +87,14 @@ const Login = () => {
                 </button>
               </div>
             </div>
-            <button type="submit" className="w-full gradient-medical text-primary-foreground font-medium rounded-lg py-2.5 text-sm hover:opacity-90 transition shadow-medical">
-              Sign In
+            <button type="submit" disabled={loading} className="w-full gradient-medical text-primary-foreground font-medium rounded-lg py-2.5 text-sm hover:opacity-90 transition shadow-medical disabled:opacity-70">
+              {loading ? "Signing In..." : "Sign In"}
             </button>
           </form>
 
           <p className="text-center text-sm text-muted-foreground mt-6">
             Don't have an account?{" "}
-            <Link to="/signup" className="text-primary font-medium hover:underline">Create account</Link>
+            <Link to="/signup" state={{ fromHome: true }} className="text-primary font-medium hover:underline">Create account</Link>
           </p>
         </div>
       </div>

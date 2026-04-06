@@ -1,9 +1,9 @@
 import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { useAuth } from "@/contexts/AuthContext";
+import { useAuth } from "@/contexts/AuthContext-mongodb";
 import logo from "@/assets/logo.png";
 import { Upload, LogOut, AlertCircle, CheckCircle, ShieldAlert, Image, ChevronDown, ChevronUp, Download, Activity, TrendingUp, Info } from "lucide-react";
-import { api, PredictionResponse, DiseaseInfo, HeatmapRegion } from "@/lib/api";
+import { api, AnalysisMetadata, AllProbabilities, DiseaseInfo, HeatmapRegion, QualityCheck } from "@/lib/api-mongodb";
 
 interface PredictionResult {
   disease: string;
@@ -13,9 +13,9 @@ interface PredictionResult {
   explanation?: string;
   heatmap_regions?: HeatmapRegion[];
   disease_info?: DiseaseInfo;
-  quality_check?: any;
-  all_probabilities?: any;
-  analysis_metadata?: any;
+  quality_check?: QualityCheck;
+  all_probabilities?: AllProbabilities;
+  analysis_metadata?: AnalysisMetadata;
 }
 
 const SIMULATED_DISEASES: PredictionResult[] = [
@@ -27,7 +27,7 @@ const SIMULATED_DISEASES: PredictionResult[] = [
 ];
 
 const Dashboard = () => {
-  const { user, logout } = useAuth();
+  const { user, logout, loading } = useAuth();
   const navigate = useNavigate();
   const fileRef = useRef<HTMLInputElement>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -43,8 +43,10 @@ const Dashboard = () => {
     if (user) {
       const stored = localStorage.getItem(`pneumax_history_${user.email}`);
       if (stored) setHistory(JSON.parse(stored));
+    } else if (!loading) {
+      navigate("/login");
     }
-  }, [user]);
+  }, [user, loading, navigate]);
 
   const saveHistory = (newHistory: typeof history) => {
     if (user) {
@@ -187,9 +189,20 @@ DISCLAIMER: This AI-assisted prediction is for informational purposes only and d
     reader.readAsDataURL(file);
   };
 
-  const handleLogout = () => { logout(); navigate("/login"); };
+  const handleLogout = async () => {
+    await logout();
+    navigate("/login");
+  };
 
-  if (!user) { navigate("/login"); return null; }
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary border-t-transparent" />
+      </div>
+    );
+  }
+
+  if (!user) { return null; }
 
   return (
     <div className="min-h-screen bg-background">

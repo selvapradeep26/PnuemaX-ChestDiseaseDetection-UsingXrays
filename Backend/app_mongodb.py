@@ -56,15 +56,23 @@ DISEASE_INFO = {
 def token_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
-        token = request.headers.get('Authorization')
-        if not token:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header:
             return jsonify({'error': 'Token is missing'}), 401
         
+        # Handle "Bearer <token>" format
+        parts = auth_header.split()
+        if len(parts) == 2 and parts[0].lower() == 'bearer':
+            token = parts[1]
+        else:
+            token = auth_header
+        
         try:
+            # Decode token; PyJWT will raise for expired/invalid tokens
             decoded = jwt.decode(token, JWT_SECRET, algorithms=['HS256'])
-            if datetime.datetime.utcnow() > datetime.datetime.fromisoformat(decoded['exp']):
-                return jsonify({'error': 'Token has expired'}), 401
-        except:
+        except jwt.ExpiredSignatureError:
+            return jsonify({'error': 'Token has expired'}), 401
+        except Exception:
             return jsonify({'error': 'Token is invalid'}), 401
         
         return f(*args, **kwargs)
@@ -117,7 +125,7 @@ def generate_heatmap_regions(disease, confidence):
     return regions
 
 def check_image_quality(image):
-    """Simple image quality assessment"""
+    """Enhanced image quality and X-ray validation"""
     try:
         img_array = np.array(image)
         
@@ -131,32 +139,105 @@ def check_image_quality(image):
         gray = np.mean(img_array, axis=2)
         blur_score = np.std(gray)  # Simplified blur detection
         
-        quality_issues = []
-        if brightness < 50:
-            quality_issues.append("Image appears too dark")
-        elif brightness > 200:
-            quality_issues.append("Image appears overexposed")
-            
-        if contrast < 30:
-            quality_issues.append("Low contrast may affect accuracy")
-            
-        if blur_score < 20:
-            quality_issues.append("Image may be blurred")
+        # Detect if this looks like a chest X-ray
+        is_xray = validate_chest_xray(img_array)
         
-        quality_score = max(0, 100 - len(quality_issues) * 20)
+        quality_issues = []
+        
+        if not is_xray:
+            quality_issues.append("Image does not appear to be a chest X-ray")
+        
+        if brightness < 40:
+            quality_issues.append("Image is too dark for accurate diagnosis")
+        elif brightness > 220:
+            quality_issues.append("Image is overexposed")
+            
+        if contrast < 20:
+            quality_issues.append("Low contrast - image quality poor")
+            
+        if blur_score < 10:
+            quality_issues.append("Image is blurred - may affect accuracy")
+        
+        quality_score = max(0, 100 - len(quality_issues) * 25)
+        is_valid_xray = is_xray and quality_score >= 50
         
         return {
             "quality_score": quality_score,
             "issues": quality_issues,
-            "acceptable": quality_score >= 60
+            "acceptable": is_valid_xray,
+            "is_chest_xray": is_xray
         }
     except:
-        return {"quality_score": 50, "issues": ["Unable to assess image quality"], "acceptable": False}
+        return {
+            "quality_score": 0, 
+            "issues": ["Unable to assess image quality"], 
+            "acceptable": False,
+            "is_chest_xray": False
+        }
+
+def validate_chest_xray(img_array):
+    """Validate if image appears to be a chest X-ray"""
+    try:
+        # Check image dimensions - should be roughly square or portrait
+        h, w = img_array.shape[:2]
+        aspect_ratio = w / h if h > 0 else 1
+        
+        # Chest X-rays are typically portrait (height > width) or nearly square
+        if aspect_ratio > 1.2:  # Too wide, likely not an X-ray
+            return False
+        
+        # Convert to grayscale to analyze
+        if len(img_array.shape) == 3:
+            gray = np.mean(img_array, axis=2)
+        else:
+            gray = img_array
+        
+        # X-ray images have specific characteristics:
+        # 1. Dark background (low pixel values on edges)
+        # 2. Bright anatomy in center
+        # 3. Relatively uniform distribution
+        
+        # Check edges are dark (typical X-ray frame)
+        edge_threshold = 50
+        top_edge = np.mean(gray[0:10, :])
+        bottom_edge = np.mean(gray[-10:, :])
+        left_edge = np.mean(gray[:, 0:10])
+        right_edge = np.mean(gray[:, -10:])
+        
+        edges = [top_edge, bottom_edge, left_edge, right_edge]
+        dark_edges = sum(1 for e in edges if e < edge_threshold) >= 2
+        
+        # Check center is not completely uniform (should have some detail)
+        center_h, center_w = h // 4, w // 4
+        center = gray[center_h:3*center_h, center_w:3*center_w]
+        center_std = np.std(center)
+        has_detail = center_std > 15
+        
+        # Check overall brightness (X-rays are typically medium-bright)
+        overall_brightness = np.mean(gray)
+        valid_brightness = 60 < overall_brightness < 230
+        
+        # Validate: should have dark edges, detail, and proper brightness
+        is_valid_xray = (dark_edges or has_detail) and valid_brightness
+        
+        return is_valid_xray
+    except:
+        return True  # If we can't validate, allow it through
 
 @app.route("/register", methods=["POST"])
 def register():
     try:
+        if not db.connected:
+            return jsonify({'error': 'MongoDB is unavailable. Registration is temporarily disabled.'}), 503
+
         data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+
+        required_fields = ['email', 'password', 'firstName', 'lastName']
+        missing_fields = [field for field in required_fields if not data.get(field)]
+        if missing_fields:
+            return jsonify({'error': f"Missing required fields: {', '.join(missing_fields)}"}), 400
         
         # Check if user already exists
         existing_user = db.get_user_by_email(data['email'])
@@ -183,7 +264,7 @@ def register():
                 'userId': str(user_id)
             }), 201
         else:
-            return jsonify({'error': 'Failed to create user'}), 500
+            return jsonify({'error': db.last_error or 'Failed to create user'}), 500
             
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -191,6 +272,9 @@ def register():
 @app.route("/login", methods=["POST"])
 def login():
     try:
+        if not db.connected:
+            return jsonify({'error': 'MongoDB is unavailable. Login is temporarily disabled.'}), 503
+
         data = request.get_json()
         
         # Find user
@@ -221,11 +305,23 @@ def login():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route("/logout", methods=["POST"])
+def logout():
+    return jsonify({'message': 'Logged out successfully'}), 200
+
 @app.route("/profile", methods=["GET"])
 @token_required
 def profile():
     try:
-        token = request.headers.get('Authorization')
+        auth_header = request.headers.get('Authorization')
+        
+        # Handle "Bearer <token>" format
+        parts = auth_header.split()
+        if len(parts) == 2 and parts[0].lower() == 'bearer':
+            token = parts[1]
+        else:
+            token = auth_header
+        
         decoded = jwt.decode(token, JWT_SECRET, algorithms=['HS256'])
         
         user = db.get_user_by_email(decoded['email'])
@@ -249,12 +345,24 @@ def profile():
 @token_required
 def save_scan():
     try:
-        token = request.headers.get('Authorization')
+        if not db.connected:
+            return jsonify({'error': 'MongoDB is unavailable. Scan saving is temporarily disabled.'}), 503
+
+        auth_header = request.headers.get('Authorization')
+        
+        # Handle "Bearer <token>" format
+        parts = auth_header.split()
+        if len(parts) == 2 and parts[0].lower() == 'bearer':
+            token = parts[1]
+        else:
+            token = auth_header
+        
         decoded = jwt.decode(token, JWT_SECRET, algorithms=['HS256'])
         
         data = request.get_json()
         
         scan_data = {
+            'user_id': decoded['userId'],
             'user_email': decoded['email'],
             'prediction': data['prediction'],
             'confidence': data['confidence'],
@@ -287,11 +395,19 @@ def save_scan():
 @token_required
 def scan_history():
     try:
-        token = request.headers.get('Authorization')
+        auth_header = request.headers.get('Authorization')
+        
+        # Handle "Bearer <token>" format
+        parts = auth_header.split()
+        if len(parts) == 2 and parts[0].lower() == 'bearer':
+            token = parts[1]
+        else:
+            token = auth_header
+        
         decoded = jwt.decode(token, JWT_SECRET, algorithms=['HS256'])
         
         limit = request.args.get('limit', 10, type=int)
-        scans = db.get_user_scans(decoded['email'], limit)
+        scans = db.get_user_scans(email=decoded['email'], user_id=decoded['userId'], limit=limit)
         
         return jsonify({
             'scans': scans,
@@ -304,6 +420,8 @@ def scan_history():
 @app.route("/predict", methods=["POST"])
 def predict():
     try:
+        print(f"[/predict] Incoming request from {request.remote_addr}; headers: {dict(request.headers)}")
+        print(f"[/predict] Files keys: {list(request.files.keys())}")
         if 'file' not in request.files:
             return jsonify({"error": "No file provided"}), 400
         
@@ -313,8 +431,35 @@ def predict():
         
         image = Image.open(file).convert("RGB")
         
-        # Check image quality first
+        # Check image quality and X-ray validity
         quality_check = check_image_quality(image)
+        
+        # If not a valid chest X-ray, return error
+        if not quality_check.get("is_chest_xray", True):
+            return jsonify({
+                "prediction": "Not a Chest X-ray",
+                "confidence": 0.0,
+                "all_probabilities": {
+                    "Normal": 0.0,
+                    "Pneumonia": 0.0,
+                    "Tuberculosis": 0.0
+                },
+                "explanation": "The uploaded image does not appear to be a chest X-ray. Please upload a valid chest X-ray image.",
+                "heatmap_regions": [],
+                "disease_info": {
+                    "precaution": "Unable to diagnose. Please ensure you're uploading a chest X-ray image.",
+                    "follow_up": "Resubmit a clear chest X-ray image.",
+                    "severity": "Unknown",
+                    "recommendations": ["Upload a valid chest X-ray image", "Ensure image clarity", "Try a different angle"]
+                },
+                "quality_check": quality_check,
+                "analysis_metadata": {
+                    "model_version": "LuNet-v1.0",
+                    "input_shape": "224x224x3",
+                    "processing_time": "0.5s",
+                    "confidence_level": "Low"
+                }
+            }), 400
         
         x = preprocess(image)
         pred = model.predict(x)[0]
@@ -323,12 +468,26 @@ def predict():
         predicted_class_idx = np.argmax(pred)
         confidence = float(pred[predicted_class_idx])
         
+        # Class mapping - IMPORTANT: If your trained model has different class order,
+        # adjust this mapping accordingly. By default: [Normal, Pneumonia, Tuberculosis]
+        # If inverted, swap Normal and Tuberculos indices
         diseases = ["Normal", "Pneumonia", "Tuberculosis"]
+        
+        # INVERSION FIX: If the model predictions are inverted (Normal appears as diseased),
+        # uncomment the next line to swap Normal with Tuberculosis indices
+        # predicted_class_idx = 2 - predicted_class_idx  # This inverts: 0->2, 1->1, 2->0
+        
         predicted_disease = diseases[predicted_class_idx]
         
-        # Generate explanation and heatmap
-        explanation = generate_explanation(predicted_disease, confidence)
-        heatmap_regions = generate_heatmap_regions(predicted_disease, confidence)
+        # Only return prediction if confidence is reasonable
+        if confidence < 0.25:
+            # Low confidence - mark as uncertain
+            predicted_disease = "Uncertain"
+            explanation = "Image quality or content insufficient for reliable diagnosis. Please consult a radiology specialist."
+        else:
+            # Generate explanation and heatmap for valid predictions
+            explanation = generate_explanation(predicted_disease, confidence)
+            heatmap_regions = generate_heatmap_regions(predicted_disease, confidence)
         
         return jsonify({
             "prediction": predicted_disease,
@@ -339,8 +498,8 @@ def predict():
                 "Tuberculosis": float(pred[2])
             },
             "explanation": explanation,
-            "heatmap_regions": heatmap_regions,
-            "disease_info": DISEASE_INFO[predicted_disease],
+            "heatmap_regions": heatmap_regions if confidence >= 0.25 else [],
+            "disease_info": DISEASE_INFO.get(predicted_disease, DISEASE_INFO["Normal"]),
             "quality_check": quality_check,
             "analysis_metadata": {
                 "model_version": "LuNet-v1.0",
@@ -350,23 +509,38 @@ def predict():
             }
         })
     except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f"[/predict] Error: {e}")
         return jsonify({"error": str(e)}), 500
 
 @app.route("/health", methods=["GET"])
 def health():
+    database_health = db.get_health_status()
+    model_loaded = os.path.exists(model_path)
+
+    if model_loaded and database_health.get("mongodb_connected"):
+        status = "healthy"
+    elif model_loaded or database_health.get("mode") == "in-memory":
+        status = "degraded"
+    else:
+        status = "unhealthy"
+
     return jsonify({
-        "status": "healthy", 
-        "model_loaded": os.path.exists(model_path),
+        "status": status,
+        "model_loaded": model_loaded,
         "model_type": "Multi-class Lung Disease Detection",
         "supported_diseases": ["Normal", "Pneumonia", "Tuberculosis"],
-        "database": db.get_health_status()
+        "database": database_health
     })
 
 if __name__ == "__main__":
-    # Connect to MongoDB on startup
-    if db.connect():
-        print("Starting Flask server with MongoDB connection...")
-        app.run(port=5000, debug=True)
+    # Start Flask server regardless of MongoDB connection
+    # The app will use in-memory storage if MongoDB is unavailable
+    print("Starting Flask server...")
+    print(f"Database connected: {db.connected}")
+    if db.connected:
+        print("Using MongoDB for persistence")
     else:
-        print("Failed to connect to MongoDB. Exiting...")
-        exit(1)
+        print("Using in-memory storage (data will be lost on restart)")
+    app.run(port=5000, debug=True)

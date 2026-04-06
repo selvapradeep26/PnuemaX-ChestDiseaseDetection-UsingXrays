@@ -1,4 +1,21 @@
-const API_BASE_URL = 'http://localhost:5000';
+const getDefaultApiBaseUrl = () => {
+  if (typeof window !== 'undefined') {
+    return `${window.location.protocol}//${window.location.hostname}:5000`;
+  }
+
+  return 'http://localhost:5000';
+};
+
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) || getDefaultApiBaseUrl();
+
+const parseErrorMessage = async (response: Response, fallbackMessage: string) => {
+  try {
+    const error = await response.json();
+    return error.error || fallbackMessage;
+  } catch {
+    return fallbackMessage;
+  }
+};
 
 export interface DiseaseInfo {
   precaution: string;
@@ -28,14 +45,24 @@ export interface AnalysisMetadata {
   confidence_level: string;
 }
 
+export interface AllProbabilities {
+  Normal: number;
+  Pneumonia: number;
+  Tuberculosis: number;
+}
+
+export interface DatabaseHealth {
+  status: string;
+  mongodb_connected: boolean;
+  database?: string;
+  mode?: string;
+  error?: string;
+}
+
 export interface PredictionResponse {
   prediction: string;
   confidence: number;
-  all_probabilities: {
-    Normal: number;
-    Pneumonia: number;
-    Tuberculosis: number;
-  };
+  all_probabilities: AllProbabilities;
   explanation: string;
   heatmap_regions: HeatmapRegion[];
   disease_info: DiseaseInfo;
@@ -70,8 +97,8 @@ export interface ScanRecord {
   heatmap_regions?: HeatmapRegion[];
   disease_info?: DiseaseInfo;
   quality_check?: QualityCheck;
-  all_probabilities?: any;
-  analysis_metadata?: any;
+  all_probabilities?: AllProbabilities;
+  analysis_metadata?: AnalysisMetadata;
 }
 
 class AuthAPI {
@@ -96,7 +123,7 @@ class AuthAPI {
 
   private static getAuthHeaders(): Record<string, string> {
     const token = this.getToken();
-    return token ? { 'Authorization': token } : {};
+    return token ? { 'Authorization': `Bearer ${token}` } : {};
   }
 
   static async register(userData: { email: string; password: string; firstName: string; lastName: string }): Promise<{ message: string; userId?: string }> {
@@ -104,14 +131,12 @@ class AuthAPI {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-      ...this.getAuthHeaders()
       },
       body: JSON.stringify(userData)
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Registration failed');
+      throw new Error(await parseErrorMessage(response, 'Registration failed'));
     }
 
     return response.json();
@@ -127,8 +152,7 @@ class AuthAPI {
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Login failed');
+      throw new Error(await parseErrorMessage(response, 'Login failed'));
     }
 
     const data = await response.json();
@@ -140,15 +164,6 @@ class AuthAPI {
 
   static async logout(): Promise<void> {
     this.removeToken();
-    // Optional: Call backend to invalidate token
-    try {
-      await fetch(`${API_BASE_URL}/logout`, {
-        method: 'POST',
-        headers: this.getAuthHeaders()
-      });
-    } catch (error) {
-      console.error('Logout error:', error);
-    }
   }
 
   static async getProfile(): Promise<User> {
@@ -158,7 +173,7 @@ class AuthAPI {
     });
 
     if (!response.ok) {
-      throw new Error('Failed to get profile');
+      throw new Error(await parseErrorMessage(response, 'Failed to get profile'));
     }
 
     return response.json();
@@ -168,7 +183,7 @@ class AuthAPI {
 class ScanAPI {
   private static getAuthHeaders(): Record<string, string> {
     const token = localStorage.getItem('pneumax_token');
-    return token ? { 'Authorization': token } : {};
+    return token ? { 'Authorization': `Bearer ${token}` } : {};
   }
 
   static async saveScan(scanData: Omit<ScanRecord, '_id'>): Promise<{ message: string; scanId: string }> {
@@ -182,8 +197,7 @@ class ScanAPI {
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Failed to save scan');
+      throw new Error(await parseErrorMessage(response, 'Failed to save scan'));
     }
 
     return response.json();
@@ -196,7 +210,7 @@ class ScanAPI {
     });
 
     if (!response.ok) {
-      throw new Error('Failed to get scan history');
+      throw new Error(await parseErrorMessage(response, 'Failed to get scan history'));
     }
 
     return response.json();
@@ -205,10 +219,10 @@ class ScanAPI {
 
 export const api = {
   // Original endpoints (still work for predictions)
-  async healthCheck(): Promise<{ status: string; model_loaded: boolean; model_type: string; supported_diseases: string[]; database: any }> {
+  async healthCheck(): Promise<{ status: string; model_loaded: boolean; model_type: string; supported_diseases: string[]; database: DatabaseHealth }> {
     const response = await fetch(`${API_BASE_URL}/health`);
     if (!response.ok) {
-      throw new Error('Health check failed');
+      throw new Error(await parseErrorMessage(response, 'Health check failed'));
     }
     return response.json();
   },
@@ -223,7 +237,7 @@ export const api = {
     });
 
     if (!response.ok) {
-      throw new Error('Prediction failed');
+      throw new Error(await parseErrorMessage(response, 'Prediction failed'));
     }
 
     return response.json();
